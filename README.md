@@ -105,6 +105,5 @@ This repository is inspired by and builds upon [Andrej Karpathy's nanoGPT lectur
 ##License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
 ---
 | Last updated: 2025-09-16
