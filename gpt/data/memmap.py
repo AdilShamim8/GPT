@@ -19,6 +19,7 @@ class MemoryMappedDataset(BaseDataset):
             raise FileNotFoundError(f"Binary dataset file does not exist: {self.bin_path}")
 
         self.block_size = block_size
+        self.dtype = dtype
         self.data = np.memmap(str(self.bin_path), dtype=dtype, mode="r")
 
         if len(self.data) <= block_size:
@@ -35,3 +36,9 @@ class MemoryMappedDataset(BaseDataset):
         x = torch.from_numpy(chunk[: self.block_size])
         y = torch.from_numpy(chunk[1 : self.block_size + 1])
         return x, y
+
+    def close(self) -> None:
+        """Close memory mapped file handle (important for Windows OS file releases)."""
+        if hasattr(self, "data") and hasattr(self.data, "_mmap") and self.data._mmap is not None:
+            self.data._mmap.close()
+            del self.data

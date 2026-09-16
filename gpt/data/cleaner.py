@@ -4,9 +4,10 @@ from typing import Iterable, Iterator, List, Set
 
 
 def normalize_whitespace(text: str) -> str:
-    """Normalize redundant horizontal whitespace and carriage returns while preserving newlines."""
+    """Normalize redundant horizontal whitespace and carriage returns while preserving paragraph breaks."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"[ \t]+", " ", text)
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+    text = "\n".join(lines)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
