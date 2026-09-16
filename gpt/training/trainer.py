@@ -9,12 +9,13 @@ from gpt.optim.amp import MixedPrecisionManager
 from gpt.optim.decay import configure_optimizers
 from gpt.optim.scheduler import build_scheduler
 from gpt.training.checkpoint import CheckpointManager
+from gpt.training.early_stopping import EarlyStopping
 from gpt.training.logger import TrainingLogger
 from gpt.training.metrics import MetricTracker
 
 
 class Trainer:
-    """Production training engine for Transformer language models."""
+    """Production training engine for Transformer language models with MFU estimation."""
 
     def __init__(
         self,
@@ -23,6 +24,7 @@ class Trainer:
         train_dataset: BaseDataset,
         val_dataset: Optional[BaseDataset] = None,
         logger: Optional[TrainingLogger] = None,
+        early_stopping_patience: Optional[int] = None,
     ):
         self.model = model
         self.config = config
@@ -62,6 +64,11 @@ class Trainer:
         self.checkpoint_mgr = CheckpointManager(config.checkpoint_dir)
         self.logger = logger or TrainingLogger()
         self.metrics = MetricTracker()
+        self.early_stopping = (
+            EarlyStopping(patience=early_stopping_patience)
+            if early_stopping_patience is not None
+            else None
+        )
 
         self.step = 0
 
@@ -81,13 +88,15 @@ class Trainer:
                 with self.amp.autocast_context():
                     _, loss, _ = self.model(x, targets=y)
                 losses[k] = loss.item()
-            out[f"{split}_loss"] = losses.mean().item()
+            avg_loss = losses.mean().item()
+            out[f"{split}_loss"] = avg_loss
+            out[f"{split}_ppl"] = self.metrics.get_perplexity(f"{split}_loss") if avg_loss < 20 else 0.0
 
         self.model.train()
         return out
 
     def train(self) -> None:
-        """Run full training loop with gradient accumulation and evaluation."""
+        """Run full training loop with gradient accumulation, evaluation, and MFU tracking."""
         self.model.train()
         start_time = time.time()
         tokens_per_step = self.config.total_batch_size * self.model.config.block_size
@@ -106,9 +115,14 @@ class Trainer:
                 current_lr = self.optimizer.param_groups[0]["lr"]
                 self.logger.log_metrics(self.step, eval_metrics, lr=current_lr)
 
+                if self.early_stopping is not None and "val_loss" in eval_metrics:
+                    if self.early_stopping.step(eval_metrics["val_loss"]):
+                        print(f"Early stopping triggered at step {self.step}!")
+                        break
+
             # Periodic checkpoint save
             if self.step > 0 and self.step % self.config.save_interval == 0:
-                current_loss = eval_metrics.get("val_loss", 0.0)
+                current_loss = eval_metrics.get("val_loss", 0.0) if "eval_metrics" in locals() else 0.0
                 self.checkpoint_mgr.save(
                     model=self.model,
                     optimizer=self.optimizer,
@@ -126,7 +140,6 @@ class Trainer:
                 )
                 with self.amp.autocast_context():
                     _, loss, _ = self.model(x, targets=y)
-                    # Scale down loss for gradient accumulation
                     loss = loss / self.config.grad_accum_steps
 
                 self.amp.backward(loss)
