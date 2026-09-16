@@ -3,6 +3,11 @@ from gpt.config.data_config import DataConfig
 from gpt.config.inference_config import InferenceConfig
 from gpt.config.model_config import ModelConfig
 from gpt.config.presets import get_preset
+from gpt.config.serialization import (
+    load_config_file,
+    load_full_experiment_config,
+    save_config_file,
+)
 from gpt.config.train_config import TrainingConfig
 
 __all__ = [
@@ -12,4 +17,7 @@ __all__ = [
     "ModelConfig",
     "TrainingConfig",
     "get_preset",
+    "load_config_file",
+    "load_full_experiment_config",
+    "save_config_file",
 ]
