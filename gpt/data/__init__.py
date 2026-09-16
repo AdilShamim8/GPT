@@ -1,4 +1,9 @@
 from gpt.data.base import BaseDataset
+from gpt.data.cleaner import (
+    deduplicate_documents,
+    normalize_whitespace,
+    remove_control_characters,
+)
 from gpt.data.collator import DataCollatorWithPadding
 from gpt.data.in_memory import InMemoryDataset
 from gpt.data.loader import create_dataloader, get_batch_from_dataset
@@ -11,4 +16,7 @@ __all__ = [
     "MemoryMappedDataset",
     "create_dataloader",
     "get_batch_from_dataset",
+    "deduplicate_documents",
+    "normalize_whitespace",
+    "remove_control_characters",
 ]
