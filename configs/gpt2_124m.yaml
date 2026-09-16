@@ -1,0 +1,41 @@
+# Configuration for Standard OpenAI GPT-2 124M Base Model
+model:
+  vocab_size: 50257
+  block_size: 1024
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  dropout: 0.1
+  bias: true
+  norm_type: "layernorm"
+  activation: "gelu"
+  use_rope: false
+  tie_weights: true
+
+training:
+  batch_size: 8
+  grad_accum_steps: 8
+  learning_rate: 0.0006
+  min_lr: 0.00006
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  warmup_iters: 2000
+  max_iters: 100000
+  eval_interval: 1000
+  eval_iters: 200
+  save_interval: 5000
+  checkpoint_dir: "checkpoints/gpt2_124m"
+  device: "auto"
+  mixed_precision: "fp16"
+  seed: 42
+  log_interval: 10
+
+data:
+  dataset_path: "data/openwebtext"
+  data_dir: "data"
+  tokenizer_type: "bpe"
+  block_size: 1024
+  train_split: 0.95
+  use_memmap: true
