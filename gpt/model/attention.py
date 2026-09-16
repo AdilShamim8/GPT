@@ -7,11 +7,7 @@ from gpt.config.model_config import ModelConfig
 
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
-    """Expand key/value heads for Grouped-Query Attention (GQA).
-
-    Input: (batch_size, n_kv_heads, seq_len, head_dim)
-    Output: (batch_size, n_kv_heads * n_rep, seq_len, head_dim)
-    """
+    """Expand key/value heads for Grouped-Query Attention (GQA)."""
     if n_rep == 1:
         return x
     bs, n_kv_heads, seq_len, head_dim = x.shape
@@ -23,7 +19,7 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
 
 
 class CausalSelfAttention(nn.Module):
-    """Multi-Head and Grouped-Query Causal Self-Attention (MHA / GQA / MQA)."""
+    """Multi-Head / GQA Causal Self-Attention with KV-caching and SDPA."""
 
     def __init__(self, config: ModelConfig):
         super().__init__()
@@ -35,7 +31,6 @@ class CausalSelfAttention(nn.Module):
         self.head_dim = config.n_embd // config.n_head
         self.dropout_p = config.dropout
 
-        # Projections
         self.q_proj = nn.Linear(config.n_embd, self.n_head * self.head_dim, bias=config.bias)
         self.k_proj = nn.Linear(config.n_embd, self.n_kv_head * self.head_dim, bias=config.bias)
         self.v_proj = nn.Linear(config.n_embd, self.n_kv_head * self.head_dim, bias=config.bias)
@@ -66,26 +61,42 @@ class CausalSelfAttention(nn.Module):
         k = self.k_proj(x).view(B, T, self.n_kv_head, self.head_dim).transpose(1, 2)
         v = self.v_proj(x).view(B, T, self.n_kv_head, self.head_dim).transpose(1, 2)
 
-        # Broadcast KV heads to match query heads for GQA
-        k = repeat_kv(k, self.n_rep)
-        v = repeat_kv(v, self.n_rep)
+        # Update and reuse KV cache during generation
+        if layer_past is not None:
+            past_k, past_v = layer_past
+            k = torch.cat((past_k, k), dim=-2)
+            v = torch.cat((past_v, v), dim=-2)
 
-        if self.has_sdpa:
+        present = (k, v) if use_cache else None
+
+        # Expand KV heads for GQA
+        k_rep = repeat_kv(k, self.n_rep)
+        v_rep = repeat_kv(v, self.n_rep)
+
+        total_k_len = k_rep.size(-2)
+
+        if self.has_sdpa and T == total_k_len:
+            # Fast causal SDPA path during training / prefill
             y = F.scaled_dot_product_attention(
                 q,
-                k,
-                v,
+                k_rep,
+                v_rep,
                 attn_mask=None,
                 dropout_p=self.dropout_p if self.training else 0.0,
                 is_causal=True,
             )
         else:
-            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-            att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
+            # Scaled dot-product attention with past context
+            att = (q @ k_rep.transpose(-2, -1)) * (1.0 / math.sqrt(k_rep.size(-1)))
+            if T > 1:
+                # Causal mask for prefix
+                att = att.masked_fill(
+                    self.bias[:, :, :T, :total_k_len] == 0, float("-inf")
+                )
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
-            y = att @ v
+            y = att @ v_rep
 
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.c_proj(y))
-        return y, None
+        return y, present
