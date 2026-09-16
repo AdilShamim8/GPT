@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # API Server and Interactive Web Studio
+  gpt-serve:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nano-gpt-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./checkpoints:/app/checkpoints:ro
+      - ./data:/app/data:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["--host", "0.0.0.0", "--port", "8000", "--preset", "nano_shakespeare"]
+
+  # Training Job Container
+  gpt-train:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nano-gpt-trainer
+    profiles: ["training"]
+    volumes:
+      - ./checkpoints:/app/checkpoints
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    entrypoint: ["python", "train.py"]
+    command: ["--config", "configs/shakespeare_char.yaml"]
