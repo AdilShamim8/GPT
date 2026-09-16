@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nano-gpt-prod :: Studio Playground</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="dark-theme">
+  <div class="app-layout">
+    <!-- Sidebar: Parameters & Model Specs -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-badge">GPT</div>
+        <h2>nano-gpt-prod</h2>
+      </div>
+
+      <div class="panel-section">
+        <h3>Model Controls</h3>
+        <div class="control-group">
+          <label for="modelSelect">Loaded Model</label>
+          <select id="modelSelect" class="input-select">
+            <option value="nano_shakespeare">nano_shakespeare (6 layers, 384 dim)</option>
+            <option value="gpt2">gpt2 (124M standard)</option>
+            <option value="micro">micro (2 layers, CPU test)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <div class="label-row">
+            <label for="tempSlider">Temperature</label>
+            <span id="tempValue" class="badge-val">0.80</span>
+          </div>
+          <input type="range" id="tempSlider" min="0.05" max="2.0" step="0.05" value="0.80">
+        </div>
+
+        <div class="control-group">
+          <div class="label-row">
+            <label for="topPSlider">Top-p (Nucleus)</label>
+            <span id="topPValue" class="badge-val">0.95</span>
+          </div>
+          <input type="range" id="topPSlider" min="0.1" max="1.0" step="0.05" value="0.95">
+        </div>
+
+        <div class="control-group">
+          <div class="label-row">
+            <label for="maxTokensSlider">Max Tokens</label>
+            <span id="maxTokensValue" class="badge-val">200</span>
+          </div>
+          <input type="range" id="maxTokensSlider" min="16" max="1024" step="16" value="200">
+        </div>
+
+        <div class="control-group">
+          <div class="label-row">
+            <label for="repPenaltySlider">Repetition Penalty</label>
+            <span id="repPenaltyValue" class="badge-val">1.10</span>
+          </div>
+          <input type="range" id="repPenaltySlider" min="1.0" max="2.0" step="0.05" value="1.10">
+        </div>
+      </div>
+
+      <div class="panel-section stats-panel">
+        <h3>Live Telemetry</h3>
+        <div class="telemetry-grid">
+          <div class="stat-card">
+            <span class="stat-label">Generation Speed</span>
+            <span id="statSpeed" class="stat-num">-- tok/s</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Tokens Generated</span>
+            <span id="statTokens" class="stat-num">0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <span>Production LLM Studio &bull; v1.0.0</span>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="main-content">
+      <header class="top-nav">
+        <div class="mode-tabs">
+          <button id="tabChat" class="tab-btn active">Chat Assistant</button>
+          <button id="tabCompletion" class="tab-btn">Text Completion</button>
+          <button id="tabInspector" class="tab-btn">Token Inspector</button>
+        </div>
+        <div class="nav-actions">
+          <button id="clearChatBtn" class="btn-secondary" title="Clear context">Clear</button>
+        </div>
+      </header>
+
+      <!-- Chat View -->
+      <section id="chatView" class="workspace-view active">
+        <div id="chatMessages" class="chat-container">
+          <div class="message-bubble system-welcome">
+            <div class="bubble-header">System</div>
+            <div class="bubble-content">
+              Welcome to <strong>nano-gpt-prod</strong>! This generative Transformer model is running in real-time. Enter a prompt or message below to start streaming completions.
+            </div>
+          </div>
+        </div>
+
+        <div class="prompt-bar">
+          <textarea id="promptInput" placeholder="Message nano-gpt... (Shift+Enter for new line, Enter to send)" rows="1"></textarea>
+          <button id="sendBtn" class="btn-primary" id="sendBtn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Token Inspector View -->
+      <section id="inspectorView" class="workspace-view">
+        <div class="inspector-card">
+          <h2>Tokenization & Representation Inspector</h2>
+          <p>Analyze how input text is segmented into discrete token IDs by the active tokenizer.</p>
+          <textarea id="inspectorInput" placeholder="Type or paste text to inspect tokens in real-time...">To be, or not to be: that is the question.</textarea>
+          <div class="token-pills-container" id="tokenPills"></div>
+          <div id="tokenSummary" class="token-summary-bar"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="inspector.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
