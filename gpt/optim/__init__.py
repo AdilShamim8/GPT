@@ -1,3 +1,4 @@
+from gpt.optim.amp import MixedPrecisionManager
 from gpt.optim.decay import configure_optimizers
 from gpt.optim.optimizer import build_optimizer
 from gpt.optim.scheduler import (
@@ -6,6 +7,7 @@ from gpt.optim.scheduler import (
 )
 
 __all__ = [
+    "MixedPrecisionManager",
     "configure_optimizers",
     "build_optimizer",
     "build_scheduler",
