@@ -6,32 +6,46 @@ import torch.nn.functional as F
 from gpt.config.model_config import ModelConfig
 
 
+def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """Expand key/value heads for Grouped-Query Attention (GQA).
+
+    Input: (batch_size, n_kv_heads, seq_len, head_dim)
+    Output: (batch_size, n_kv_heads * n_rep, seq_len, head_dim)
+    """
+    if n_rep == 1:
+        return x
+    bs, n_kv_heads, seq_len, head_dim = x.shape
+    return (
+        x[:, :, None, :, :]
+        .expand(bs, n_kv_heads, n_rep, seq_len, head_dim)
+        .reshape(bs, n_kv_heads * n_rep, seq_len, head_dim)
+    )
+
+
 class CausalSelfAttention(nn.Module):
-    """Multi-Head Causal Self-Attention module with FlashAttention (SDPA) support."""
+    """Multi-Head and Grouped-Query Causal Self-Attention (MHA / GQA / MQA)."""
 
     def __init__(self, config: ModelConfig):
         super().__init__()
-        assert config.n_embd % config.n_head == 0
-
         self.config = config
         self.n_head = config.n_head
+        self.n_kv_head = config.n_kv_head if config.n_kv_head is not None else config.n_head
+        self.n_rep = self.n_head // self.n_kv_head
         self.n_embd = config.n_embd
         self.head_dim = config.n_embd // config.n_head
         self.dropout_p = config.dropout
 
-        # Q, K, V projections combined in single matrix
-        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
-        # Output projection
+        # Projections
+        self.q_proj = nn.Linear(config.n_embd, self.n_head * self.head_dim, bias=config.bias)
+        self.k_proj = nn.Linear(config.n_embd, self.n_kv_head * self.head_dim, bias=config.bias)
+        self.v_proj = nn.Linear(config.n_embd, self.n_kv_head * self.head_dim, bias=config.bias)
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
 
-        # Regularization
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
 
-        # FlashAttention / SDPA check
         self.has_sdpa = hasattr(F, "scaled_dot_product_attention")
         if not self.has_sdpa:
-            # Fallback causal mask buffer
             self.register_buffer(
                 "bias",
                 torch.tril(torch.ones(config.block_size, config.block_size)).view(
@@ -48,14 +62,15 @@ class CausalSelfAttention(nn.Module):
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         B, T, C = x.size()
 
-        # Calculate query, key, values for all heads in batch
-        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
-        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # (B, nh, T, hs)
+        q = self.q_proj(x).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, self.n_kv_head, self.head_dim).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, self.n_kv_head, self.head_dim).transpose(1, 2)
+
+        # Broadcast KV heads to match query heads for GQA
+        k = repeat_kv(k, self.n_rep)
+        v = repeat_kv(v, self.n_rep)
 
         if self.has_sdpa:
-            # Efficient PyTorch 2.0+ FlashAttention / Memory-efficient attention kernel
             y = F.scaled_dot_product_attention(
                 q,
                 k,
@@ -65,16 +80,12 @@ class CausalSelfAttention(nn.Module):
                 is_causal=True,
             )
         else:
-            # Manual fallback
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v
 
-        # Re-assemble all head outputs side by side
         y = y.transpose(1, 2).contiguous().view(B, T, C)
-
-        # Output projection
         y = self.resid_dropout(self.c_proj(y))
         return y, None
