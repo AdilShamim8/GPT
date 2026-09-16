@@ -1,51 +1,80 @@
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Set, Union
 from gpt.tokenizer.base import BaseTokenizer
+
+SPECIAL_TOKENS = ["<|endoftext|>", "<|pad|>", "<|unk|>"]
 
 
 class CharTokenizer(BaseTokenizer):
-    """Character-level tokenizer for small-scale and educational LLMs."""
+    """Character-level tokenizer with support for special control tokens."""
 
     def __init__(
         self,
         chars: Optional[List[str]] = None,
         stoi: Optional[Dict[str, int]] = None,
         itos: Optional[Dict[int, str]] = None,
+        special_tokens: Optional[List[str]] = None,
     ):
+        self.special_tokens = special_tokens if special_tokens is not None else SPECIAL_TOKENS.copy()
+
         if stoi is not None and itos is not None:
             self._stoi = stoi
             self._itos = itos
         elif chars is not None:
             sorted_chars = sorted(list(set(chars)))
-            self._stoi = {ch: i for i, ch in enumerate(sorted_chars)}
-            self._itos = {i: ch for i, ch in enumerate(sorted_chars)}
+            all_tokens = sorted_chars + [t for t in self.special_tokens if t not in sorted_chars]
+            self._stoi = {ch: i for i, ch in enumerate(all_tokens)}
+            self._itos = {i: ch for i, ch in enumerate(all_tokens)}
         else:
             self._stoi = {}
             self._itos = {}
 
     @classmethod
-    def from_text(cls, text: str) -> "CharTokenizer":
+    def from_text(cls, text: str, add_special_tokens: bool = True) -> "CharTokenizer":
         """Build character vocabulary directly from training text."""
         chars = sorted(list(set(text)))
-        return cls(chars=chars)
+        specials = SPECIAL_TOKENS if add_special_tokens else []
+        return cls(chars=chars, special_tokens=specials)
 
     @property
     def vocab_size(self) -> int:
         return len(self._stoi)
 
+    @property
+    def pad_token_id(self) -> Optional[int]:
+        return self._stoi.get("<|pad|>")
+
+    @property
+    def eos_token_id(self) -> Optional[int]:
+        return self._stoi.get("<|endoftext|>")
+
+    @property
+    def unk_token_id(self) -> Optional[int]:
+        return self._stoi.get("<|unk|>")
+
     def encode(self, text: str) -> List[int]:
-        """Encode text to character IDs. Skips unknown characters or raises KeyError."""
+        """Encode text to token IDs with support for special tokens and fallback."""
         encoded = []
-        for ch in text:
-            if ch in self._stoi:
-                encoded.append(self._stoi[ch])
-            else:
-                # Default to unk if available, else raise
-                if "<|unk|>" in self._stoi:
-                    encoded.append(self._stoi["<|unk|>"])
+        i = 0
+        n = len(text)
+        while i < n:
+            matched_special = False
+            for spec in self.special_tokens:
+                if text.startswith(spec, i):
+                    encoded.append(self._stoi[spec])
+                    i += len(spec)
+                    matched_special = True
+                    break
+            if not matched_special:
+                ch = text[i]
+                if ch in self._stoi:
+                    encoded.append(self._stoi[ch])
+                elif self.unk_token_id is not None:
+                    encoded.append(self.unk_token_id)
                 else:
-                    raise KeyError(f"Character {repr(ch)} not in tokenizer vocabulary.")
+                    raise KeyError(f"Character {repr(ch)} not in vocabulary.")
+                i += 1
         return encoded
 
     def decode(self, ids: List[int]) -> str:
@@ -53,11 +82,12 @@ class CharTokenizer(BaseTokenizer):
         return "".join([self._itos.get(i, "") for i in ids])
 
     def save(self, path: Union[str, Path]) -> None:
-        """Save vocabulary mapping to a JSON file."""
+        """Save vocabulary mapping and special tokens to a JSON file."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "type": "char",
+            "special_tokens": self.special_tokens,
             "stoi": self._stoi,
             "itos": {str(k): v for k, v in self._itos.items()},
         }
@@ -72,4 +102,5 @@ class CharTokenizer(BaseTokenizer):
             data = json.load(f)
         stoi = data["stoi"]
         itos = {int(k): v for k, v in data["itos"].items()}
-        return cls(stoi=stoi, itos=itos)
+        specials = data.get("special_tokens", SPECIAL_TOKENS)
+        return cls(stoi=stoi, itos=itos, special_tokens=specials)
