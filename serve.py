@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 """
-Production REST API Server for nano-gpt-prod.
+Production REST API Server and Interactive Web UI for nano-gpt-prod.
 Zero external server dependencies (pure Python http.server) with OpenAI API compatibility.
 """
 
 import argparse
 import json
 import logging
+import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import torch
@@ -54,9 +55,9 @@ class GPTServerHandler(BaseHTTPRequestHandler):
             data = {"object": "list", "data": self.registry.list_cards()}
             self.wfile.write(json.dumps(data).encode("utf-8"))
 
-        # Serve static web interface if requested
         elif self.web_dir and (self.path == "/" or self.path.startswith("/web")):
-            file_path = self.web_dir / "index.html" if self.path in {"/", "/web", "/web/"} else self.web_dir / self.path.replace("/web/", "")
+            file_name = "index.html" if self.path in {"/", "/web", "/web/"} else self.path.lstrip("/").replace("web/", "")
+            file_path = self.web_dir / file_name
             if file_path.exists() and file_path.is_file():
                 self.send_response(200)
                 content_type = "text/html"
@@ -106,7 +107,6 @@ class GPTServerHandler(BaseHTTPRequestHandler):
             )
 
             if req.stream:
-                # SSE streaming mode
                 self.send_response(200)
                 self._set_cors_headers("text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
@@ -127,14 +127,18 @@ class GPTServerHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8000, web: bool = True):
+def run_server(host: str = "0.0.0.0", port: int = 8000, web: bool = True, open_browser: bool = False):
     server = HTTPServer((host, port), GPTServerHandler)
+    url = f"http://localhost:{port}/"
     print(f"nano-gpt-prod server listening on http://{host}:{port}")
     print(f"  Health check: http://{host}:{port}/healthz")
     print(f"  API Models:   http://{host}:{port}/v1/models")
     print(f"  API Chat:     POST http://{host}:{port}/v1/chat/completions")
     if web:
-        print(f"  Web UI:       http://localhost:{port}/")
+        print(f"  Web Studio:   {url}")
+        if open_browser:
+            webbrowser.open(url)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -143,7 +147,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8000, web: bool = True):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run nano-gpt-prod OpenAI API Server")
+    parser = argparse.ArgumentParser(description="Run nano-gpt-prod OpenAI API Server & Web UI")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--checkpoint", type=str, default=None)
@@ -151,6 +155,7 @@ def main():
     parser.add_argument("--tokenizer", type=str, default=None)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--web", action="store_true", default=True, help="Serve Web UI")
+    parser.add_argument("--open", action="store_true", default=False, help="Open browser automatically")
     args = parser.parse_args()
 
     device = "cuda" if args.device == "auto" and torch.cuda.is_available() else "cpu"
@@ -176,7 +181,7 @@ def main():
     GPTServerHandler.registry = registry
     GPTServerHandler.web_dir = Path(__file__).parent / "gpt" / "web"
 
-    run_server(host=args.host, port=args.port, web=args.web)
+    run_server(host=args.host, port=args.port, web=args.web, open_browser=args.open)
 
 
 if __name__ == "__main__":
