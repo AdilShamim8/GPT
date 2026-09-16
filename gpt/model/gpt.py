@@ -69,12 +69,12 @@ class GPT(BaseModel):
         targets: Optional[torch.Tensor] = None,
         use_cache: bool = False,
         past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
+        return_all_logits: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List[Tuple[torch.Tensor, torch.Tensor]]]]:
         device = idx.device
         b, t = idx.size()
 
         if past_key_values is not None:
-            # When KV cache is active, idx is single token (b, 1)
             past_length = past_key_values[0][0].size(-2)
             pos = torch.arange(past_length, past_length + t, dtype=torch.long, device=device)
         else:
@@ -87,12 +87,12 @@ class GPT(BaseModel):
                 f"block size is only {self.config.block_size}"
             )
 
-        tok_emb = self.transformer.wte(idx)  # (b, t, n_embd)
+        tok_emb = self.transformer.wte(idx)
 
         if self.config.use_rope:
             x = self.transformer.drop(tok_emb)
         else:
-            pos_emb = self.transformer.wpe(pos)  # (t, n_embd)
+            pos_emb = self.transformer.wpe(pos)
             x = self.transformer.drop(tok_emb + pos_emb)
 
         presents = [] if use_cache else None
@@ -105,15 +105,16 @@ class GPT(BaseModel):
         x = self.transformer.ln_f(x)
 
         if targets is not None:
-            # If targets provided, compute loss across all tokens
             logits = self.lm_head(x)
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 targets.view(-1),
                 ignore_index=-1,
             )
+        elif return_all_logits:
+            logits = self.lm_head(x)
+            loss = None
         else:
-            # Inference optimization: forward the lm_head on the last position only
             logits = self.lm_head(x[:, [-1], :])
             loss = None
 
@@ -127,6 +128,5 @@ class GPT(BaseModel):
         flops_per_token = 6 * N + 12 * L * H * Q * T
         flops_per_fwdbwd = flops_per_token * T
         flops_per_iter = flops_per_fwdbwd * fwdbwd_per_iter
-        # Expressed as GFLOPS per second
         flops_achieved = flops_per_iter * (1.0 / dt)
         return flops_achieved

@@ -33,16 +33,14 @@ def evaluate_multiple_choice_example(
         x = torch.tensor([full_ids[:-1]], dtype=torch.long, device=device)
         y = torch.tensor([full_ids[1:]], dtype=torch.long, device=device)
 
-        logits, _, _ = model(x)
-        # Log probabilities
+        logits, _, _ = model(x, return_all_logits=True)
+        # Log probabilities: (1, T, vocab_size)
         log_probs = F.log_softmax(logits, dim=-1)
 
         # Sum log probabilities only for completion tokens
         comp_len = len(comp_ids)
-        target_tokens = y[0, -comp_len:]
-        selected_log_probs = log_probs[0, -comp_len:, :].gather(
-            1, target_tokens.unsqueeze(1)
-        ).squeeze(1)
+        target_tokens = y[0, -comp_len:].unsqueeze(1)  # (comp_len, 1)
+        selected_log_probs = log_probs[0, -comp_len:, :].gather(1, target_tokens).squeeze(1)
 
         total_ll = selected_log_probs.sum().item()
         if total_ll > best_log_likelihood:
